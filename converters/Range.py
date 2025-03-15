@@ -1,9 +1,9 @@
 
-from singleton_decorator import singleton
+
 import re
 from .Cardinal import Cardinal
 
-@singleton
+
 class Range:
     """
     Steps:

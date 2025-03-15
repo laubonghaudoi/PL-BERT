@@ -1,11 +1,11 @@
 
-from singleton_decorator import singleton
+
 
 import re
 
 from .Verbatim import Verbatim
 
-@singleton
+
 class Letters:
     """
     Steps:

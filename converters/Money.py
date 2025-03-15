@@ -1,12 +1,12 @@
 
-from singleton_decorator import singleton
+
 
 import re, os
 
 from .Cardinal import Cardinal
 from .Digit import Digit
 
-@singleton
+
 class Money:
     """
     Steps:

@@ -1,12 +1,12 @@
 
-from singleton_decorator import singleton
+
 
 import re
 
 from .Decimal import Decimal
 from .Fraction import Fraction
 
-@singleton
+
 class Measure:
     """
     Steps:

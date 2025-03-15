@@ -1,12 +1,12 @@
 
-from singleton_decorator import singleton
+
 
 import re
 
 from .Digit import Digit
 from .Cardinal import Cardinal
 
-@singleton
+
 class Decimal:
     """
     Steps:

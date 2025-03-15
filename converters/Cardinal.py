@@ -1,11 +1,11 @@
 
-from singleton_decorator import singleton
+
 
 import re
 
 from .Roman import Roman
 
-@singleton
+
 class Cardinal:
     """
     Steps

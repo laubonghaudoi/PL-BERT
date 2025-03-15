@@ -1,12 +1,12 @@
 
-from singleton_decorator import singleton
+
 
 import re
 
 from .Cardinal import Cardinal
 from .Digit import Digit
 
-@singleton
+
 class Address:
     """
     Steps:

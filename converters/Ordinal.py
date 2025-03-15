@@ -1,12 +1,12 @@
 
-from singleton_decorator import singleton
+
 
 import re
 
 from .Roman import Roman
 from .Cardinal import Cardinal
 
-@singleton
+
 class Ordinal:
     """
     Steps:

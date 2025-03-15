@@ -1,9 +1,9 @@
 
-from singleton_decorator import singleton
+
 
 import re
 
-@singleton
+
 class Digit:
     """
     Steps:

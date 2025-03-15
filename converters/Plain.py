@@ -1,9 +1,9 @@
 
-from singleton_decorator import singleton
+
 
 import re, os
 
-@singleton
+
 class Plain:
     """
     Steps:
