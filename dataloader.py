@@ -104,7 +104,7 @@ class FilePathDataset(torch.utils.data.Dataset):
             
         phoneme = self.text_cleaner(phoneme)
         labels = self.text_cleaner(labels)
-        words = [self.token_maps[w]['token'] for w in words]
+        words = [self.token_maps.get(w, {'token': 0})['token'] for w in words]
         
         assert len(phoneme) == len(words)
         assert len(phoneme) == len(labels)

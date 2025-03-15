@@ -37,9 +37,9 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(config['dataset_params']['tokenizer'], use_fast=False)
 
     # Process dataset
-    dataset = load_dataset("wikipedia", "20230101.en")['train']  # you can use other versions of this dataset
+    dataset = load_dataset("wikipedia", "20220301.en")['train'].select(range(2000))  # load only first 2000 rows for small experiment
     root_directory = "./wiki_phoneme"  # set up root directory for multiprocessor processing
-    num_shards = 50000
+    num_shards = 2
 
     from functools import partial
     process_shard_partial = partial(
@@ -53,7 +53,7 @@ def main():
 
     max_workers = 16  # change this to the number of CPU cores your machine has 
     with ProcessPool(max_workers=max_workers) as pool:
-        pool.map(process_shard_partial, range(num_shards), timeout=60)
+        pool.map(process_shard_partial, range(num_shards), timeout=600)
 
     # Collect all shards to form the processed dataset
     output = [dI for dI in os.listdir(root_directory) if os.path.isdir(os.path.join(root_directory, dI))]
