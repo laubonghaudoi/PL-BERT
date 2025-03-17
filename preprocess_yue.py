@@ -3,28 +3,25 @@
 
 import os
 import json
-import yaml
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import ToJyutping
-from datasets import load_dataset, load_from_disk, Dataset, concatenate_datasets
+from datasets import load_dataset, load_from_disk, concatenate_datasets
 from transformers import AutoTokenizer
-
 from pebble import ProcessPool
 from functools import partial
 
 from tqdm import tqdm
 
-
-PUNCTUATIONS = [
-    '，',
-    '。',
-    '！',
-    '？',
-]
+TOKENIZER_NAME = "hon9kon9ize/bert-base-cantonese"
+NUM_SHARDS = 10
+MAX_WORKERS = 8
+SHARDS_DIR = "./cantonese_processed_shards"
+FINAL_DATA_FOLDER = "wikipedia_20231101.zh-yue.processed"
+TOKEN_MAP_PATH = "yue_token_maps.json"
 
 def cantonese_phonemize(example: Dict[str, Any],
-                        tokenizer,
+                        tokenizer: AutoTokenizer,
                         text_column: str = "text") -> Dict[str, Any]:
     """
     ## Helper function that calls ToJyutping on a single row
@@ -34,12 +31,9 @@ def cantonese_phonemize(example: Dict[str, Any],
     """
 
     text = example[text_column]
-    # Step A: Convert text to a list of (char, Jyutping) pairs
     pairs = ToJyutping.get_jyutping_list(text)
 
-    # Step B: Collect the romanizations (ignore punctuation or None)
-    # e.g. [("咁","gam3"), ("啱","ngaam1"), ... , (",", None)]
-    jyutping_list = []
+    jyutping_list: List[str] = []
     for char, jyutping in pairs:
         if jyutping:
             jyutping_list.append(jyutping)
@@ -47,9 +41,9 @@ def cantonese_phonemize(example: Dict[str, Any],
             # Handle punctuations
             jyutping_list.append(char)
 
-    # Step C: For a subword tokenizer, we can get input_ids from the original text
-    # or from some processed version. For simplicity, let's do original text:
     encoded = tokenizer(text, add_special_tokens=True, truncation=True)
+    # input_ids is a list of token IDs, for example:
+    # tokenizer("你今日食咗飯未")["input_ids"] -> [101, 872, 791, 3189, 7608, 1477, 7613, 3313, 102]
     input_ids = encoded["input_ids"]
 
     # Return new columns: "jyutping" and "input_ids"
@@ -90,57 +84,60 @@ def process_shard(i, dataset, root_directory, num_shards, tokenizer, text_column
     print(f"[INFO] Shard {i} saved to {directory}")
 
 
+def build_and_save_token_map(dataset, token_map_path):
+    """
+    1. Gather all unique token IDs in the dataset (from 'input_ids').
+    2. Build a new 'token_map' that might remap them (e.g., sorted enumeration).
+    3. Save to JSON at token_map_path.
+    """
+    unique_tokens = set()
+    for example in dataset:
+        for tid in example["input_ids"]:
+            unique_tokens.add(tid)
+
+    # Sort them so it's reproducible
+    unique_tokens = sorted(list(unique_tokens))
+
+    # Build a mapping: old_id -> new_id
+    # (If you want a 1-to-1 identity map, you can skip sorting or do something else.)
+    token_map = {}
+    for new_id, old_id in enumerate(unique_tokens):
+        token_map[old_id] = new_id
+
+    # Save to JSON
+    with open(token_map_path, 'w', encoding='utf-8') as f:
+        json.dump(token_map, f)
+
+    print(f"[INFO] Built token map of size {len(token_map)}. Saved to {token_map_path}")
+
+
 def main():
-    # -- A. Load config
-    config_path = "Configs/config_cantonese.yaml"
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    # -- B. Load your dataset
-    # Replace with your actual dataset. e.g.:
-    #   dataset = load_dataset("text", data_files={"train": "my_cantonese_texts.txt"})["train"]
-    # Or from HF: dataset = load_dataset("your-hf-cantonese-dataset")["train"]
     dataset = load_dataset("wikimedia/wikipedia", "20231101.zh-yue")['train']
-    print("[INFO] Loaded dataset size:", len(dataset))
+    print(f"[INFO] Loaded dataset size: {len(dataset) / 1000}k rows")
 
-    # The text column name might not be "text"; adapt if your dataset uses another field
-    text_column = config["dataset_params"].get("text_column", "text")
-
-    # -- C. Initialize the tokenizer
-    # This could be any suitable tokenizer for your text, or a new one trained for Cantonese.
-    # For demonstration, let's use "bert-base-chinese" or a relevant Cantonese model
-    tokenizer_name = config["dataset_params"]["tokenizer"]  # e.g. "bert-base-chinese"
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=False)
-
-    # -- D. Sharding / Multiprocessing
-    root_directory = "./cantonese_processed_shards"
-    num_shards = config["dataset_params"].get("num_shards", 10)  # adapt as needed
-    max_workers = config["dataset_params"].get("max_workers", 4)
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME, use_fast=False)
 
     # We define a partial to fix arguments except shard index
     process_shard_partial = partial(
         process_shard,
         dataset=dataset,
-        root_directory=root_directory,
-        num_shards=num_shards,
+        root_directory=SHARDS_DIR,
+        num_shards=NUM_SHARDS,
         tokenizer=tokenizer,
-        text_column=text_column
+        text_column='text'
     )
 
-    # Use a process pool for concurrency
-    # or comment out if you want single-threaded
-    with ProcessPool(max_workers=max_workers) as pool:
-        pool.map(process_shard_partial, range(num_shards), timeout=600)
+    with ProcessPool(max_workers=MAX_WORKERS) as pool:
+        pool.map(process_shard_partial, range(NUM_SHARDS), timeout=600)
 
-    # -- E. Concatenate the shards
-    from datasets import load_from_disk, concatenate_datasets
+    # Concatenate the shards
     shard_dirs = [
-        d for d in os.listdir(root_directory)
-        if os.path.isdir(os.path.join(root_directory, d))
+        d for d in os.listdir(SHARDS_DIR)
+        if os.path.isdir(os.path.join(SHARDS_DIR, d))
     ]
     processed_datasets = []
-    for sd in shard_dirs:
-        shard_path = os.path.join(root_directory, sd)
+    for sd in tqdm(shard_dirs):
+        shard_path = os.path.join(SHARDS_DIR, sd)
         try:
             ds = load_from_disk(shard_path)
             processed_datasets.append(ds)
@@ -153,26 +150,14 @@ def main():
         raise ValueError("No shards loaded. Check if sharding or processing failed.")
 
     final_dataset = concatenate_datasets(processed_datasets)
-    print("[INFO] Final dataset length:", len(final_dataset))
+    print(f"[INFO] Final dataset length: {len(final_dataset) / 1000}k rows")
 
-    # -- F. Save final dataset
-    final_data_folder = config["data_folder"]  # e.g. "cantonese_dataset_processed"
-    os.makedirs(final_data_folder, exist_ok=True)
-    final_dataset.save_to_disk(final_data_folder)
-    print("[INFO] Dataset saved to", final_data_folder)
+    # Save final dataset
+    os.makedirs(FINAL_DATA_FOLDER, exist_ok=True)
+    final_dataset.save_to_disk(FINAL_DATA_FOLDER)
+    print(f"[INFO] Dataset saved to {FINAL_DATA_FOLDER}")
 
-    # -- G. (Optional) Prune tokens or do additional steps
-    # For example, gather unique token IDs in 'input_ids' if you plan on pruning,
-    # or build a new token map for lowercasing, etc. The logic is similar to your
-    # English script.
-
-    # If you want to replicate the “token pruning” approach exactly:
-    # 1. Load the final dataset with a simple loader that yields `input_ids`.
-    # 2. Collect unique IDs, do any case or special token handling.
-    # 3. Save out a `token_maps.json`.
-
-    print("[INFO] Preprocessing complete.")
-
+    build_and_save_token_map(final_dataset, TOKEN_MAP_PATH)
 
 if __name__ == "__main__":
     main()
